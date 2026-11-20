@@ -1,0 +1,13 @@
+{
+  "features": [
+    "HistoricalPurchaseAmount",
+    "HistoricalCancellations",
+    "RecencyDays",
+    "HistoricalInvoices"
+  ],
+  "threshold": 0.275,
+  "prediction_horizon_days": 30,
+  "model": "XGBoostClassifier",
+  "xgboost_version": "3.4.1",
+  "sklearn_version": "1.6.1"
+}
