@@ -1,44 +1,18 @@
-
 // ==========================================
-// RETAILIQ 2.0 - XGBOOST CANCELLATION RISK
+// RETAILIQ 2.0 - CLOUD DATABASE EDITION
 // ==========================================
 
-// Default public FastAPI endpoint
+// 1. API configuration
+
 const DEFAULT_API =
     "https://retail-cancellation-predictor.onrender.com/predict";
 
-let API_URL = localStorage.getItem("retailIQEndpoint")
-    || DEFAULT_API;
+let API_URL = DEFAULT_API;
 
-// Replace previously saved localhost endpoint
-if (
-    API_URL.includes("127.0.0.1") ||
-    API_URL.includes("localhost")
-) {
-    API_URL = DEFAULT_API;
-
-    localStorage.setItem(
-        "retailIQEndpoint",
-        API_URL
-    );
-}
-
-// Render free server startup timeout
-const REQUEST_TIMEOUT = 120000;
-
-// Load previous prediction history
 let history = [];
-
-try {
-    history = JSON.parse(
-        localStorage.getItem("retailIQHistory") || "[]"
-    );
-
-    if (!Array.isArray(history)) history = [];
-
-} catch {
-    history = [];
-}
+let historyLoaded = false;
+let historyError = "";
+let refreshPromise = null;
 
 const $ = id => document.getElementById(id);
 
@@ -57,23 +31,69 @@ const pageNames = {
     settings: "API Settings"
 };
 
+// ==========================================
+// 2. API REQUEST HELPER
+// ==========================================
+
+function getEndpoint(path) {
+
+    return new URL(path, API_URL).href;
+
+}
+
+async function apiRequest(url, options = {}) {
+
+    const controller = new AbortController();
+
+    const timeout = setTimeout(
+        () => controller.abort(),
+        120000
+    );
+
+    try {
+
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+            cache: "no-store"
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                "API returned HTTP " + response.status
+            );
+        }
+
+        return await response.json();
+
+    } finally {
+
+        clearTimeout(timeout);
+
+    }
+
+}
 
 // ==========================================
-// 1. NAVIGATION
+// 3. NAVIGATION
 // ==========================================
 
 function showPage(page) {
 
-    document.querySelectorAll(".page").forEach(section => {
-        section.classList.remove("active");
-    });
+    document.querySelectorAll(".page")
+        .forEach(section => {
+            section.classList.remove("active");
+        });
 
-    document.querySelectorAll(".nav-btn").forEach(button => {
-        button.classList.toggle(
-            "active",
-            button.dataset.page === page
-        );
-    });
+    document.querySelectorAll(".nav-btn")
+        .forEach(button => {
+
+            button.classList.toggle(
+                "active",
+                button.dataset.page === page
+            );
+
+        });
 
     $(page).classList.add("active");
 
@@ -82,19 +102,28 @@ function showPage(page) {
     updateDashboard();
     updateHistory();
     updateAnalytics();
+
+    // Retrieve latest cloud records
+
+    if (["dashboard", "history", "analytics"].includes(page)) {
+        loadCloudHistory();
+    }
+
 }
 
-document.querySelectorAll(".nav-btn").forEach(button => {
+document.querySelectorAll(".nav-btn")
+    .forEach(button => {
 
-    button.addEventListener("click", () => {
-        showPage(button.dataset.page);
+        button.addEventListener("click", () => {
+
+            showPage(button.dataset.page);
+
+        });
+
     });
 
-});
-
-
 // ==========================================
-// 2. LOAD SAMPLE INPUT
+// 4. LOAD SAMPLE CUSTOMER
 // ==========================================
 
 function loadSample() {
@@ -108,142 +137,335 @@ function loadSample() {
 
 }
 
-
 // ==========================================
-// 3. SUBMIT CUSTOMER DETAILS
+// 5. LOAD HISTORY FROM SUPABASE VIA FASTAPI
 // ==========================================
 
-$("predictionForm").addEventListener("submit", async event => {
+async function loadCloudHistory() {
 
-    event.preventDefault();
+    // Prevent overlapping history requests
 
-    $("errorMessage").textContent = "";
-
-    const rawValues = [
-        $("purchase").value,
-        $("cancellations").value,
-        $("recency").value,
-        $("invoices").value
-    ];
-
-    // Validate input values
-    if (rawValues.some(value =>
-        value.trim() === "" ||
-        !Number.isFinite(Number(value)) ||
-        Number(value) < 0
-    )) {
-        $("errorMessage").textContent =
-            "Please enter valid non-negative values.";
-
-        return;
+    if (refreshPromise) {
+        return refreshPromise;
     }
 
-    if (!rawValues.slice(1).every(value =>
-        Number.isInteger(Number(value))
-    )) {
-        $("errorMessage").textContent =
-            "Cancellations, recency and invoices must be whole numbers.";
+    refreshPromise = (async () => {
 
-        return;
-    }
+        console.log("Loading cloud prediction history...");
 
-    // Prepare four XGBoost input features
-    const data = {
-        HistoricalPurchaseAmount: Number($("purchase").value),
-        HistoricalCancellations: Number($("cancellations").value),
-        RecencyDays: Number($("recency").value),
-        HistoricalInvoices: Number($("invoices").value)
-    };
+        try {
 
-    console.log("Sending customer data:", data);
+            let records = [];
+            let offset = 0;
+            let total = null;
 
-    $("predictBtn").disabled = true;
+            const limit = 100;
 
-    $("predictBtn").textContent =
-        "Analyzing Customer Risk...";
+            // Retrieve all pages of database records
 
-    resetResult();
+            while (total === null || offset < total) {
 
-    $("recommendation").textContent =
-        "Connecting to the server. The first request may take up to two minutes.";
+                const url = getEndpoint(
+                    `/history?limit=${limit}&offset=${offset}`
+                );
 
-    const controller = new AbortController();
+                const response = await apiRequest(url);
 
-    const timeout = setTimeout(() => {
-        controller.abort();
-    }, REQUEST_TIMEOUT);
+                if (
+                    response.status !== "success" ||
+                    !Array.isArray(response.predictions)
+                ) {
+                    throw new Error("Invalid history response");
+                }
+
+                if (total === null) {
+                    total = Number(response.total_predictions);
+
+                    if (!Number.isInteger(total) || total < 0) {
+                        throw new Error("Invalid record count");
+                    }
+                }
+
+                const batch = response.predictions;
+
+                records.push(...batch);
+
+                offset += batch.length;
+
+                if (batch.length < limit) {
+                    break;
+                }
+
+            }
+
+            // Remove duplicate IDs during pagination
+
+            const uniqueRecords = [
+                ...new Map(
+                    records.map(item => [item.id, item])
+                ).values()
+            ];
+
+            // Convert database columns to frontend format
+
+            const mappedHistory = uniqueRecords.map(item => ({
+
+                id: item.id,
+
+                date: new Date(
+                    item.created_at
+                ).toLocaleString(),
+
+                HistoricalPurchaseAmount:
+                    Number(item.historical_purchase_amount),
+
+                HistoricalCancellations:
+                    Number(item.historical_cancellations),
+
+                RecencyDays:
+                    Number(item.recency_days),
+
+                HistoricalInvoices:
+                    Number(item.historical_invoices),
+
+                prediction:
+                    Number(item.prediction),
+
+                cancellation_probability:
+                    Number(item.cancellation_probability),
+
+                risk_level:
+                    item.risk_level
+
+            }));
+
+            mappedHistory.forEach(validateResult);
+
+            history = mappedHistory;
+            historyLoaded = true;
+            historyError = "";
+
+            updateDashboard();
+            updateHistory();
+            updateAnalytics();
+
+            setConnectionStatus(true);
+
+            $("connectionMessage").textContent =
+                "Cloud history synchronized successfully.";
+
+            console.log(
+                "Cloud records loaded:",
+                history.length
+            );
+
+            return true;
+
+        } catch (error) {
+
+            historyError =
+                "Unable to synchronize cloud history.";
+
+            console.error(
+                "Cloud history loading failed:",
+                error
+            );
+
+            $("connectionMessage").textContent =
+                historyError + " Please try again.";
+
+            updateDashboard();
+            updateHistory();
+            updateAnalytics();
+
+            setConnectionStatus(false);
+
+            return false;
+
+        }
+
+    })();
 
     try {
 
-        // Send customer details to Render FastAPI
-        const response = await fetch(API_URL, {
-
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
-            body: JSON.stringify(data),
-
-            signal: controller.signal
-
-        });
-
-        if (!response.ok) {
-            throw new Error(
-                "API returned HTTP " + response.status
-            );
-        }
-
-        const result = await response.json();
-
-        console.log("XGBoost response received:", result);
-
-        validateResult(result);
-
-        displayResult(result);
-
-        savePrediction(data, result);
-
-        setConnectionStatus(true);
-
-    } catch (error) {
-
-        console.error("Prediction failed:", error);
-
-        $("errorMessage").textContent =
-            error.name === "AbortError"
-                ? "Server request timed out. Please try again."
-                : "Prediction failed: " + error.message
-                  + ". Check your API connection.";
-
-        $("recommendation").textContent =
-            "Prediction unavailable. Please try again.";
-
-        setConnectionStatus(false);
+        return await refreshPromise;
 
     } finally {
 
-        clearTimeout(timeout);
-
-        $("predictBtn").disabled = false;
-
-        $("predictBtn").textContent =
-            "Analyze Cancellation Risk";
+        refreshPromise = null;
 
     }
 
-});
-
+}
 
 // ==========================================
-// 4. VALIDATE BACKEND RESPONSE
+// 6. SUBMIT CUSTOMER PREDICTION
+// ==========================================
+
+$("predictionForm").addEventListener(
+    "submit",
+    async event => {
+
+        event.preventDefault();
+
+        $("errorMessage").textContent = "";
+
+        const fields = [
+            "purchase",
+            "cancellations",
+            "recency",
+            "invoices"
+        ];
+
+        if (fields.some(id => $(id).value.trim() === "")) {
+
+            $("errorMessage").textContent =
+                "Please enter all customer details.";
+
+            return;
+
+        }
+
+        const data = {
+
+            HistoricalPurchaseAmount:
+                Number($("purchase").value),
+
+            HistoricalCancellations:
+                Number($("cancellations").value),
+
+            RecencyDays:
+                Number($("recency").value),
+
+            HistoricalInvoices:
+                Number($("invoices").value)
+
+        };
+
+        // Validate customer inputs
+
+        if (
+            Object.values(data).some(
+                value => !Number.isFinite(value) || value < 0
+            )
+        ) {
+
+            $("errorMessage").textContent =
+                "Enter valid non-negative values.";
+
+            return;
+
+        }
+
+        if (
+            !Number.isInteger(data.HistoricalCancellations) ||
+            !Number.isInteger(data.RecencyDays) ||
+            !Number.isInteger(data.HistoricalInvoices)
+        ) {
+
+            $("errorMessage").textContent =
+                "Cancellations, recency and invoices must be whole numbers.";
+
+            return;
+
+        }
+
+        $("predictBtn").disabled = true;
+
+        $("predictBtn").textContent =
+            "Analyzing Customer Risk...";
+
+        resetResult();
+
+        console.log("Sending customer data:", data);
+
+        try {
+
+            const result = await apiRequest(API_URL, {
+
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify(data)
+
+            });
+
+            console.log("Model response:", result);
+
+            validateResult(result);
+
+            displayResult(result);
+
+            setConnectionStatus(true);
+
+            // Backend automatically saves to Supabase
+
+            if (result.saved_to_database === true) {
+
+                console.log(
+                    "Prediction saved to cloud database."
+                );
+
+                // Wait for any previous refresh to finish
+
+                if (refreshPromise) {
+                    await refreshPromise;
+                }
+
+                // Retrieve updated shared history
+
+                const synced = await loadCloudHistory();
+
+                if (!synced) {
+                    $("errorMessage").textContent =
+                        "Prediction saved, but history refresh failed.";
+                }
+
+            } else {
+
+                $("errorMessage").textContent =
+                    "Prediction generated, but cloud storage was not confirmed.";
+
+                console.warn(
+                    "Database storage was not confirmed."
+                );
+
+            }
+
+        } catch (error) {
+
+            console.error("Prediction failed:", error);
+
+            $("errorMessage").textContent =
+                error.name === "AbortError"
+                    ? "Request timed out. Check history before retrying."
+                    : "Prediction failed: " + error.message;
+
+            setConnectionStatus(false);
+
+        } finally {
+
+            $("predictBtn").disabled = false;
+
+            $("predictBtn").textContent =
+                "Analyze Cancellation Risk";
+
+        }
+
+    }
+);
+
+// ==========================================
+// 7. VALIDATE MODEL RESPONSE
 // ==========================================
 
 function validateResult(result) {
 
-    const probability = result.cancellation_probability;
+    const probability =
+        result.cancellation_probability;
 
     if (
         typeof probability !== "number" ||
@@ -251,51 +473,63 @@ function validateResult(result) {
         probability < 0 ||
         probability > 1
     ) {
-        throw new Error("Invalid cancellation probability");
+
+        throw new Error(
+            "Invalid cancellation probability"
+        );
+
     }
 
     if (![0, 1].includes(result.prediction)) {
+
         throw new Error("Invalid prediction label");
+
     }
 
     if (!Object.hasOwn(riskColors, result.risk_level)) {
+
         throw new Error("Invalid risk category");
+
     }
 
 }
 
-
 // ==========================================
-// 5. RESET PREVIOUS PREDICTION
+// 8. RESET PREVIOUS PREDICTION
 // ==========================================
 
 function resetResult() {
 
     $("probability").textContent = "—";
 
-    $("gauge").style.setProperty("--progress", "0deg");
+    $("gauge").style.setProperty(
+        "--progress",
+        "0deg"
+    );
 
-    $("riskBadge").textContent = "Awaiting Prediction";
+    $("riskBadge").textContent =
+        "Awaiting Prediction";
 
     $("riskBadge").style.color = "";
 
     $("riskBadge").style.background = "#252e45";
 
-    $("predictionLabel").textContent = "No prediction yet";
+    $("predictionLabel").textContent =
+        "No prediction yet";
 
     $("recommendation").textContent =
         "Waiting for the model response.";
 
 }
 
-
 // ==========================================
-// 6. DISPLAY XGBOOST PREDICTION
+// 9. DISPLAY PREDICTION RESULT
 // ==========================================
 
 function displayResult(result) {
 
-    const probability = result.cancellation_probability;
+    const probability =
+        result.cancellation_probability;
 
     const percentage = probability * 100;
 
@@ -350,66 +584,47 @@ function displayResult(result) {
 
 }
 
-
 // ==========================================
-// 7. SAVE PREDICTION HISTORY
-// ==========================================
-
-function savePrediction(input, result) {
-
-    history.unshift({
-
-        date: new Date().toLocaleString(),
-
-        ...input,
-
-        ...result
-
-    });
-
-    localStorage.setItem(
-        "retailIQHistory",
-        JSON.stringify(history)
-    );
-
-    updateDashboard();
-    updateHistory();
-    updateAnalytics();
-
-    console.log("Prediction saved successfully.");
-
-}
-
-
-// ==========================================
-// 8. UPDATE DASHBOARD STATISTICS
+// 10. UPDATE DASHBOARD
 // ==========================================
 
 function updateDashboard() {
 
-    $("totalPredictions").textContent = history.length;
+    if (!historyLoaded) {
+
+        $("totalPredictions").textContent = "—";
+        $("averageRisk").textContent = "—";
+        $("highRiskCount").textContent = "—";
+
+        return;
+
+    }
+
+    $("totalPredictions").textContent =
+        history.length;
 
     const average = history.length
         ? history.reduce(
             (sum, item) =>
-                sum + item.cancellation_probability, 0
-          ) / history.length
+                sum + item.cancellation_probability,
+            0
+        ) / history.length
         : null;
 
     $("averageRisk").textContent =
         average === null
             ? "—"
-            : (average * 100).toFixed(1) + "%";
+            : (average * 100).toFixed(2) + "%";
 
-    $("highRiskCount").textContent = history.filter(
-        item => item.prediction === 1
-    ).length;
+    $("highRiskCount").textContent =
+        history.filter(
+            item => item.prediction === 1
+        ).length;
 
 }
 
-
 // ==========================================
-// 9. UPDATE PREDICTION HISTORY TABLE
+// 11. UPDATE SHARED HISTORY TABLE
 // ==========================================
 
 function updateHistory() {
@@ -418,7 +633,24 @@ function updateHistory() {
 
     tbody.replaceChildren();
 
-    if (history.length === 0) {
+    if (historyError) {
+
+        const row = tbody.insertRow();
+        const cell = row.insertCell();
+
+        cell.colSpan = 7;
+
+        cell.textContent =
+            historyError +
+            (historyLoaded
+                ? " Showing last synchronized records."
+                : "");
+
+    }
+
+    if (!historyLoaded || history.length === 0) {
+
+        if (historyError) return;
 
         const row = tbody.insertRow();
 
@@ -426,7 +658,9 @@ function updateHistory() {
 
         cell.colSpan = 7;
 
-        cell.textContent = "No predictions recorded yet.";
+        cell.textContent = historyLoaded
+            ? "No cloud predictions recorded yet."
+            : "Loading cloud prediction history...";
 
         return;
 
@@ -470,9 +704,8 @@ function updateHistory() {
 
 }
 
-
 // ==========================================
-// 10. GENERATE ANALYTICS CHART
+// 12. UPDATE CLOUD ANALYTICS
 // ==========================================
 
 function updateAnalytics() {
@@ -480,6 +713,20 @@ function updateAnalytics() {
     const chart = $("riskChart");
 
     chart.replaceChildren();
+
+    if (!historyLoaded || historyError) {
+
+        const message = document.createElement("div");
+
+        message.textContent = historyError
+            ? historyError
+            : "Loading cloud analytics...";
+
+        chart.appendChild(message);
+
+        if (!historyLoaded) return;
+
+    }
 
     Object.keys(riskColors).forEach(risk => {
 
@@ -524,136 +771,80 @@ function updateAnalytics() {
 
 }
 
-
 // ==========================================
-// 11. SAVE API ENDPOINT
+// 13. API SETTINGS
 // ==========================================
 
 function saveEndpoint() {
 
-    const value = $("apiEndpoint").value.trim();
+    // Use only the official RetailIQ backend
 
-    try {
+    API_URL = DEFAULT_API;
 
-        const url = new URL(value);
+    $("apiEndpoint").value = DEFAULT_API;
 
-        if (!["http:", "https:"].includes(url.protocol)) {
-            throw new Error("Invalid protocol");
-        }
+    $("connectionMessage").textContent =
+        "Official cloud API endpoint selected.";
 
-        // Automatically append /predict if missing
-        if (!url.pathname.endsWith("/predict")) {
-
-            url.pathname =
-                url.pathname.replace(/\/+$/, "") + "/predict";
-
-        }
-
-        url.search = "";
-        url.hash = "";
-
-        API_URL = url.href;
-
-        $("apiEndpoint").value = API_URL;
-
-        localStorage.setItem(
-            "retailIQEndpoint",
-            API_URL
-        );
-
-        $("connectionMessage").textContent =
-            "Endpoint saved. Test the connection.";
-
-        setConnectionStatus(false);
-
-        console.log("API endpoint saved:", API_URL);
-
-    } catch {
-
-        $("connectionMessage").textContent =
-            "Enter a valid HTTP or HTTPS API URL.";
-
-    }
+    checkConnection();
 
 }
 
-
 // ==========================================
-// 12. TEST RENDER FASTAPI CONNECTION
+// 14. CHECK BACKEND AND DATABASE
 // ==========================================
 
 async function checkConnection() {
 
     $("connectionMessage").textContent =
-        "Connecting to Render. Please wait...";
-
-    const controller = new AbortController();
-
-    const timeout = setTimeout(
-        () => controller.abort(),
-        REQUEST_TIMEOUT
-    );
+        "Checking cloud connection...";
 
     try {
 
-        const url = new URL(API_URL);
+        const backend = await apiRequest(
+            getEndpoint("/")
+        );
 
-        // New backend uses GET / instead of /health
-        url.pathname = "/";
+        if (backend.status !== "running") {
 
-        url.search = "";
-        url.hash = "";
-
-        console.log("Checking backend:", url.href);
-
-        const response = await fetch(url.href, {
-
-            method: "GET",
-
-            signal: controller.signal
-
-        });
-
-        if (!response.ok) {
             throw new Error("Backend unavailable");
+
         }
 
-        const result = await response.json();
+        const database = await apiRequest(
+            getEndpoint("/database-status")
+        );
 
-        console.log("Backend status:", result);
+        if (database.status !== "connected") {
 
-        // Validate new XGBoost backend
-        if (result.status !== "running") {
-            throw new Error("Unexpected backend response");
+            throw new Error("Database unavailable");
+
         }
 
         setConnectionStatus(true);
 
         $("connectionMessage").textContent =
-            "XGBoost backend connected successfully!";
+            "FastAPI and Supabase connected successfully!";
+
+        console.log("Cloud connection successful.");
+
+        await loadCloudHistory();
 
     } catch (error) {
 
         setConnectionStatus(false);
 
         $("connectionMessage").textContent =
-            error.name === "AbortError"
-                ? "Connection timed out. Please try again."
-                : "Connection failed. Check your Render API URL.";
+            "Cloud connection failed. Please try again.";
 
-        console.error(error);
-
-    } finally {
-
-        clearTimeout(timeout);
+        console.error("Connection failed:", error);
 
     }
 
 }
 
-
 // ==========================================
-// 13. UPDATE API CONNECTION INDICATOR
+// 15. CONNECTION INDICATOR
 // ==========================================
 
 function setConnectionStatus(connected) {
@@ -662,50 +853,80 @@ function setConnectionStatus(connected) {
         connected ? "#22c55e" : "#ef4444";
 
     $("apiStatus").textContent =
-        connected ? "API connected" : "API not connected";
+        connected
+            ? "API connected"
+            : "Cloud sync unavailable";
 
 }
 
-
 // ==========================================
-// 14. EXPORT HISTORY AS CSV
+// 16. EXPORT CLOUD HISTORY AS CSV
 // ==========================================
 
-function exportCSV() {
+async function exportCSV() {
+
+    // Refresh records before exporting
+
+    const synced = await loadCloudHistory();
+
+    if (!synced) {
+
+        alert("Unable to retrieve current cloud records.");
+
+        return;
+
+    }
 
     if (history.length === 0) {
+
         alert("No predictions available to export.");
+
         return;
+
     }
 
     const columns = [
 
         "date",
+
         "HistoricalPurchaseAmount",
+
         "HistoricalCancellations",
+
         "RecencyDays",
+
         "HistoricalInvoices",
+
         "prediction",
+
         "cancellation_probability",
+
         "risk_level"
 
     ];
 
     const escapeCSV = value =>
-        '"' + String(value ?? "").replace(/"/g, '""') + '"';
+        '"' + String(value ?? "")
+            .replace(/"/g, '""') + '"';
 
     const csv = [
 
         columns.join(","),
 
         ...history.map(item =>
-            columns.map(key => escapeCSV(item[key])).join(",")
+
+            columns.map(
+                key => escapeCSV(item[key])
+            ).join(",")
+
         )
 
     ].join("\n");
 
     const blob = new Blob([csv], {
+
         type: "text/csv;charset=utf-8;"
+
     });
 
     const url = URL.createObjectURL(blob);
@@ -714,56 +935,85 @@ function exportCSV() {
 
     link.href = url;
 
-    link.download = "RetailIQ_Predictions.csv";
+    link.download =
+        "RetailIQ_Cloud_Predictions.csv";
+
+    document.body.appendChild(link);
 
     link.click();
 
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    link.remove();
 
-    console.log("CSV exported successfully.");
+    setTimeout(
+        () => URL.revokeObjectURL(url),
+        1000
+    );
+
+    console.log("Cloud CSV exported successfully.");
 
 }
 
-
 // ==========================================
-// 15. CLEAR PREDICTION HISTORY
+// 17. PROTECT SHARED DATABASE RECORDS
 // ==========================================
 
 function clearHistory() {
 
-    if (!confirm("Delete all saved predictions?")) {
-        return;
-    }
-
-    history = [];
-
-    localStorage.removeItem("retailIQHistory");
-
-    updateDashboard();
-    updateHistory();
-    updateAnalytics();
-
-    console.log("Prediction history cleared.");
+    alert(
+        "Cloud prediction history is shared by all users. " +
+        "Only the database administrator can delete records."
+    );
 
 }
 
-
 // ==========================================
-// 16. INITIALIZE APPLICATION
+// 18. INITIALIZE APPLICATION
 // ==========================================
 
 $("apiEndpoint").value = API_URL;
+
+$("apiEndpoint").readOnly = true;
 
 updateDashboard();
 updateHistory();
 updateAnalytics();
 
-console.log("RetailIQ 2.0 initialized successfully.");
-console.log("Model: XGBoost Classifier");
-console.log("Features: 4");
-console.log("Classification threshold: 0.275");
-console.log("Prediction horizon: 30 days");
-console.log("Current API endpoint:", API_URL);
+$("apiStatus").textContent =
+    "Connecting to cloud...";
 
-// Automatically check public backend connection
+console.log(
+    "RetailIQ 2.0 Cloud Edition initialized."
+);
+
+console.log("API endpoint:", API_URL);
+
+// Connect and load database history
+
 checkConnection();
+
+// Automatically refresh shared history every 30 seconds
+
+setInterval(() => {
+
+    if (document.visibilityState === "visible") {
+
+        loadCloudHistory();
+
+    }
+
+}, 30000);
+
+// Refresh when user returns to the website
+
+document.addEventListener(
+    "visibilitychange",
+    () => {
+
+        if (document.visibilityState === "visible") {
+
+            loadCloudHistory();
+
+        }
+
+    }
+);
