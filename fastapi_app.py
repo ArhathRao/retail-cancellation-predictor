@@ -142,7 +142,7 @@ def database_status():
         }
 
     except Exception:
-        logger.error('Database connection check failed.')
+        logger.exception('Database connection check failed.')
 
         raise HTTPException(
             status_code=503,
