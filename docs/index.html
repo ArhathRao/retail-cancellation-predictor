@@ -1,44 +1,45 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RetailIQ | Cancellation Intelligence</title>
+    <title>Cancellation Predictor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
 <aside class="sidebar">
-    <h1 class="logo">Retail<span>IQ</span></h1>
-    <p class="subtitle">Cancellation Intelligence</p>
+    <h1 class="logo">Cancellation Predictor</h1>
 
     <nav>
         <button class="nav-btn active" data-page="dashboard">
-            ◈ Dashboard
+            <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg> <span>Dashboard</span>
         </button>
 
         <button class="nav-btn" data-page="prediction">
-            ◎ Risk Prediction
+            <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> <span>Risk Prediction</span>
         </button>
 
         <button class="nav-btn" data-page="analytics">
-            ▥ Analytics
+            <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18M8 16v-3m4 3V8m4 8v-5m4 5V5"/></svg> <span>Analytics</span>
         </button>
 
         <button class="nav-btn" data-page="history">
-            ◷ Prediction History
+            <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8m0-5v5h5m4-1v5l4 2"/></svg> <span>Prediction History</span>
         </button>
 
         <button class="nav-btn" data-page="settings">
-            ⚙ API Settings
+            <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.08A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.08A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.08A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.08A1.65 1.65 0 0 0 19.4 15Z"/></svg> <span>API Settings</span>
         </button>
     </nav>
 
     <div class="sidebar-bottom">
-        <span id="statusDot" class="status-dot"></span>
-        <span id="apiStatus">API not connected</span>
+        <span id="statusDot" class="status-dot" data-state="loading" aria-hidden="true"></span>
+        <span id="apiStatus" role="status" aria-live="polite">Waking server...</span>
     </div>
 </aside>
 
@@ -46,147 +47,160 @@
 
     <header>
         <div>
-            <p class="eyebrow">MACHINE LEARNING PLATFORM</p>
             <h2 id="pageTitle">Dashboard</h2>
         </div>
-        <span class="tag">Retail Intelligence</span>
     </header>
 
-    <!-- Dashboard -->
+    <!-- Shared prediction workspace -->
+    <div class="prediction-grid" id="predictionWorkspace">
 
-    <section id="dashboard" class="page active">
-
-        <div class="hero">
-            <p class="eyebrow">AI-POWERED ANALYTICS</p>
-            <h1>Understand customer risk.<br>Make smarter decisions.</h1>
-
-            <p>
-                Predict customer cancellation risk using
-                historical retail transaction patterns.
-            </p>
-
-            <button class="primary" onclick="showPage('prediction')">
-                Start Prediction →
-            </button>
-        </div>
-
-        <div class="stats-grid">
-
-            <div class="card">
-                <p>Total Predictions</p>
-                <h2 id="totalPredictions">0</h2>
-            </div>
-
-            <div class="card">
-                <p>Average Risk</p>
-                <h2 id="averageRisk">—</h2>
-            </div>
-
-            <div class="card">
-                <p>Predicted Cancellations</p>
-                <h2 id="highRiskCount">0</h2>
-            </div>
-
-            <div class="card">
-                <p>Model Features</p>
-                <h2>4</h2>
-            </div>
-
-        </div>
-
-        <div class="card">
-            <h3>About the Model</h3>
-            <p>
-                The machine learning model estimates customer
-                cancellation risk based on historical purchase
-                amount, previous cancellations, recency and
-                invoice history.
-            </p>
-        </div>
-
-    </section>
-
-    <!-- Prediction -->
-
-    <section id="prediction" class="page">
-
-        <div class="prediction-grid">
-
-            <div class="card">
-                <h3>Customer Information</h3>
-                <p>Enter historical customer transaction details.</p>
+            <div class="section-panel">
+                <h3>Customer history</h3>
+                <p>Enter the four historical values used by the model.</p>
 
                 <form id="predictionForm">
 
-                    <label>Historical Purchase Amount (£)</label>
+                    <label for="purchase">Historical Purchase Amount (£)</label>
                     <input type="number" id="purchase"
                            min="0" step="0.01"
                            placeholder="Example: 2500" required>
 
-                    <label>Historical Cancellations</label>
+                    <label for="cancellations">Historical Cancellations</label>
                     <input type="number" id="cancellations"
                            min="0" step="1"
                            placeholder="Example: 2" required>
 
-                    <label>Recency (Days)</label>
+                    <label for="recency">Recency (Days)</label>
                     <input type="number" id="recency"
                            min="0" step="1"
                            placeholder="Example: 15" required>
 
-                    <label>Historical Invoices</label>
+                    <label for="invoices">Historical Invoices</label>
                     <input type="number" id="invoices"
                            min="0" step="1"
                            placeholder="Example: 10" required>
 
                     <button type="submit" class="primary"
                             id="predictBtn">
-                        Analyze Cancellation Risk
+                        Predict cancellation
                     </button>
 
                     <button type="button" class="secondary"
                             onclick="loadSample()">
-                        Load Sample Input
+                        Load example
                     </button>
 
-                    <p id="errorMessage" class="error"></p>
+                    <p id="serverLoading" class="server-loading" role="status">Waking server... Free hosting may take a minute or two to respond.</p>
+                    <p id="errorMessage" class="error" role="alert"></p>
 
                 </form>
             </div>
 
-            <div class="card result-card">
+            <div class="section-panel result-card" aria-live="polite">
 
-                <h3>Prediction Result</h3>
+                <h3>Latest prediction</h3>
 
-                <div class="gauge" id="gauge">
+                <div class="gauge" id="gauge" data-empty="true">
+                    
                     <div class="gauge-inner">
-                        <h1 id="probability">—</h1>
-                        <p>Cancellation Risk</p>
+                        <h1 id="probability">Not calculated</h1>
+                        <p>30-day cancellation probability</p>
                     </div>
+                    <div class="probability-track" aria-hidden="true"><div></div></div>
                 </div>
 
                 <div id="riskBadge" class="risk-badge">
-                    Awaiting Prediction
+                    No risk classification
                 </div>
 
                 <h3 id="predictionLabel">No prediction yet</h3>
 
                 <p id="recommendation">
-                    Submit customer details to analyze risk.
+                    Enter customer history and run a prediction.
                 </p>
 
             </div>
 
         </div>
 
+    <!-- Dashboard -->
+
+    <section id="dashboard" class="page active">
+
+
+        <p id="statsMessage" class="stats-message" role="status">Loading prediction statistics…</p>
+
+        <div class="stats-grid" id="statsRow" hidden>
+
+            <div class="stat-item">
+                <p>Total Predictions</p>
+                <h2 id="totalPredictions">—</h2>
+            </div>
+
+            <div class="stat-item">
+                <p>Mean cancellation probability</p>
+                <h2 id="averageRisk">—</h2>
+            </div>
+
+            <div class="stat-item">
+                <p>Predicted Cancellations</p>
+                <h2 id="highRiskCount">—</h2>
+            </div>
+
+            <div class="stat-item">
+                <p>Model Features</p>
+                <h2>4</h2>
+            </div>
+
+        </div>
+
+        <div class="section-panel model-details">
+            <h3>About the Model</h3>
+            <p>UCI Online Retail dataset · December 2010 – December 2011</p>
+            <p>XGBoost Classifier · 30-day prediction horizon · Decision threshold: 0.275</p>
+            <h4>Model inputs</h4>
+            <ul class="model-features">
+                <li>HistoricalPurchaseAmount</li><li>HistoricalCancellations</li>
+                <li>RecencyDays</li><li>HistoricalInvoices</li>
+            </ul>
+            <h4>Held-out test performance · 7,668 samples</h4>
+            <div class="model-metrics">
+                <div><span>Accuracy</span><strong>91.25%</strong></div>
+                <div><span>Precision</span><strong>35.36%</strong></div>
+                <div><span>Recall</span><strong>27.66%</strong></div>
+            </div>
+            <p>Cancellation is the positive class. The test set is imbalanced: 546 cancellation cases out of 7,668. Accuracy alone does not measure cancellation detection quality.</p>
+            <div class="model-charts">
+                <section><h4>Feature importance</h4>
+                    <p>Final four-feature XGBoost model. Approximate scores read from the saved notebook chart.</p>
+                    <div class="importance-row"><div>HistoricalInvoices <span>≈ 0.302</span></div><div class="importance-track"><div style="width:30.2%"></div></div></div><div class="importance-row"><div>HistoricalCancellations <span>≈ 0.275</span></div><div class="importance-track"><div style="width:27.5%"></div></div></div><div class="importance-row"><div>HistoricalPurchaseAmount <span>≈ 0.260</span></div><div class="importance-track"><div style="width:26.0%"></div></div></div><div class="importance-row"><div>RecencyDays <span>≈ 0.163</span></div><div class="importance-track"><div style="width:16.3%"></div></div></div>
+                    <p>Scale: 0–1. Importance is not a causal effect.</p>
+                </section>
+                <section><h4>Confusion matrix</h4>
+                    <div class="table-container"><table class="model-matrix">
+                        <caption>Rows: actual · Columns: predicted</caption>
+                        <thead><tr><th scope="col">Actual / predicted</th><th scope="col">No cancellation</th><th scope="col">Cancellation</th></tr></thead>
+                        <tbody><tr><th scope="row">No cancellation</th><td class="matrix-tn">6,846<small>True negative</small></td><td>276<small>False positive</small></td></tr>
+                        <tr><th scope="row">Cancellation</th><td>395<small>False negative</small></td><td class="matrix-tp">151<small>True positive</small></td></tr></tbody>
+                    </table></div>
+                </section>
+            </div>
+            <p class="model-source">Source: SDC_PROJECT.ipynb — Final 4-Feature XGBoost Test Evaluation and Final ML Project Summary. Static test results, not live prediction statistics.</p>
+        </div>
+
     </section>
+
+    <section id="prediction" class="page"></section>
+
+
 
     <!-- Analytics -->
 
     <section id="analytics" class="page">
 
-        <div class="card">
-            <h3>Risk Distribution</h3>
-            <p>Based on actual predictions made in this browser.</p>
+        <div class="section-panel">
+            <h3>Predictions by risk level</h3>
+            <p>Counts of predictions saved in the shared database.</p>
 
             <div id="riskChart"></div>
         </div>
@@ -197,7 +211,7 @@
 
     <section id="history" class="page">
 
-        <div class="card">
+        <div class="section-panel">
 
             <div class="section-heading">
                 <h3>Prediction History</h3>
@@ -207,7 +221,7 @@
                 </button>
 
                 <button class="secondary" onclick="clearHistory()">
-                    Clear History
+                    Clear history (admin only)
                 </button>
             </div>
 
@@ -237,19 +251,19 @@
 
     <section id="settings" class="page">
 
-        <div class="card">
+        <div class="section-panel">
 
             <h3>API Configuration</h3>
 
-            <p>Enter the FastAPI prediction endpoint.</p>
+            <p>The prediction endpoint is fixed for this deployment.</p>
 
-            <label>Prediction API URL</label>
+            <label for="apiEndpoint">Prediction API URL</label>
 
             <input type="url" id="apiEndpoint"
-                   placeholder="http://127.0.0.1:8000/predict">
+                   placeholder="https://retail-cancellation-predictor.onrender.com/predict">
 
             <button class="primary" onclick="saveEndpoint()">
-                Save Endpoint
+                Use official endpoint
             </button>
 
             <button class="secondary" onclick="checkConnection()">
@@ -260,14 +274,14 @@
 
             <hr>
 
-            <h3>Existing Streamlit Application</h3>
+            <h3>Streamlit version</h3>
 
-            <p>Open the independently deployed ML application.</p>
+            <p>Use the separate Streamlit interface for the same prediction task.</p>
 
             <a class="external-link"
                href="https://retail-cancellation-predictor.streamlit.app/"
                target="_blank" rel="noopener noreferrer">
-                Open Streamlit Model ↗
+                Open Streamlit Model <svg class="line-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 3h6v6m0-6-9 9"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
             </a>
 
         </div>
