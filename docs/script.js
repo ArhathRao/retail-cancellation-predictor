@@ -1,5 +1,5 @@
 // ==========================================
-// RETAILIQ 2.0 - CLOUD DATABASE EDITION
+// CANCELLATION PREDICTOR - CLOUD EDITION
 // ==========================================
 
 // 1. API configuration
@@ -10,17 +10,21 @@ const DEFAULT_API =
 let API_URL = DEFAULT_API;
 
 let history = [];
+let predictionInProgress = false;
+let sessionResultDisplayed = false;
 let historyLoaded = false;
 let historyError = "";
 let refreshPromise = null;
+let connectionState = "loading";
+let connectionCheck = null;
 
 const $ = id => document.getElementById(id);
 
 const riskColors = {
-    "Low": "#22c55e",
-    "Moderate": "#eab308",
-    "High": "#f97316",
-    "Very High": "#ef4444"
+    "Low": "#A0A2A6",
+    "Moderate": "#E8A33D",
+    "High": "#E8A33D",
+    "Very High": "#E8A33D"
 };
 
 const pageNames = {
@@ -96,6 +100,7 @@ function showPage(page) {
         });
 
     $(page).classList.add("active");
+    $("predictionWorkspace").hidden = !["dashboard", "prediction"].includes(page);
 
     $("pageTitle").textContent = pageNames[page];
 
@@ -148,6 +153,8 @@ async function loadCloudHistory() {
     if (refreshPromise) {
         return refreshPromise;
     }
+
+    if (connectionState !== "connected") setConnectionStatus("loading");
 
     refreshPromise = (async () => {
 
@@ -242,6 +249,11 @@ async function loadCloudHistory() {
             mappedHistory.forEach(validateResult);
 
             history = mappedHistory;
+
+            // Show the latest stored result until this session makes a prediction.
+            if (!predictionInProgress && !sessionResultDisplayed && history.length) {
+                displayResult(history[0]);
+            }
             historyLoaded = true;
             historyError = "";
 
@@ -307,6 +319,7 @@ $("predictionForm").addEventListener(
     async event => {
 
         event.preventDefault();
+        if (predictionInProgress) return;
 
         $("errorMessage").textContent = "";
 
@@ -373,9 +386,13 @@ $("predictionForm").addEventListener(
         $("predictBtn").disabled = true;
 
         $("predictBtn").textContent =
-            "Analyzing Customer Risk...";
+            "Predicting...";
 
+        predictionInProgress = true;
+        if (connectionState !== "connected") setConnectionStatus("loading");
+        $("predictionForm").setAttribute("aria-busy", "true");
         resetResult();
+        $("predictionLabel").textContent = "Calculating cancellation probability...";
 
         console.log("Sending customer data:", data);
 
@@ -398,6 +415,7 @@ $("predictionForm").addEventListener(
             validateResult(result);
 
             displayResult(result);
+            sessionResultDisplayed = true;
 
             setConnectionStatus(true);
 
@@ -448,10 +466,12 @@ $("predictionForm").addEventListener(
 
         } finally {
 
+            predictionInProgress = false;
+            $("predictionForm").removeAttribute("aria-busy");
             $("predictBtn").disabled = false;
 
             $("predictBtn").textContent =
-                "Analyze Cancellation Risk";
+                "Predict cancellation";
 
         }
 
@@ -500,19 +520,19 @@ function validateResult(result) {
 
 function resetResult() {
 
-    $("probability").textContent = "—";
+    $("probability").textContent = "Not calculated";
+    $("gauge").dataset.empty = "true";
 
     $("gauge").style.setProperty(
         "--progress",
-        "0deg"
+        "0"
     );
 
     $("riskBadge").textContent =
-        "Awaiting Prediction";
+        "No risk classification";
 
     $("riskBadge").style.color = "";
 
-    $("riskBadge").style.background = "#252e45";
 
     $("predictionLabel").textContent =
         "No prediction yet";
@@ -532,6 +552,7 @@ function displayResult(result) {
         result.cancellation_probability;
 
     const percentage = probability * 100;
+    $("gauge").dataset.empty = "false";
 
     const risk = result.risk_level;
 
@@ -542,7 +563,7 @@ function displayResult(result) {
 
     $("gauge").style.setProperty(
         "--progress",
-        probability * 360 + "deg"
+        String(percentage)
     );
 
     $("gauge").style.setProperty(
@@ -554,7 +575,6 @@ function displayResult(result) {
 
     $("riskBadge").style.color = color;
 
-    $("riskBadge").style.background = color + "20";
 
     $("predictionLabel").textContent =
         result.prediction === 1
@@ -590,15 +610,17 @@ function displayResult(result) {
 
 function updateDashboard() {
 
-    if (!historyLoaded) {
+    const hasData = historyLoaded && history.length > 0;
+    $("statsRow").hidden = !hasData;
+    $("statsMessage").hidden = hasData && !historyError;
 
-        $("totalPredictions").textContent = "—";
-        $("averageRisk").textContent = "—";
-        $("highRiskCount").textContent = "—";
+    $("statsMessage").textContent = historyError
+        ? historyError + (hasData ? " Showing last synchronized records." : " Please try again.")
+        : !historyLoaded
+            ? "Loading prediction statistics…"
+            : "No predictions yet. Run one to see results here.";
 
-        return;
-
-    }
+    if (!hasData) return;
 
     $("totalPredictions").textContent =
         history.length;
@@ -728,6 +750,11 @@ function updateAnalytics() {
 
     }
 
+    if (history.length === 0) {
+        if (!historyError) chart.textContent = "No predictions yet. Run one to see the risk distribution.";
+        return;
+    }
+
     Object.keys(riskColors).forEach(risk => {
 
         const count = history.filter(
@@ -777,7 +804,7 @@ function updateAnalytics() {
 
 function saveEndpoint() {
 
-    // Use only the official RetailIQ backend
+    // Use only the official Cancellation Predictor backend
 
     API_URL = DEFAULT_API;
 
@@ -795,9 +822,11 @@ function saveEndpoint() {
 // ==========================================
 
 async function checkConnection() {
-
+    if (connectionCheck) return connectionCheck;
+    connectionCheck = (async () => {
+    if (connectionState !== "connected") setConnectionStatus("loading");
     $("connectionMessage").textContent =
-        "Checking cloud connection...";
+        "Checking connection. Free hosting may take a minute or two to wake up.";
 
     try {
 
@@ -840,7 +869,9 @@ async function checkConnection() {
         console.error("Connection failed:", error);
 
     }
-
+    })();
+    try { return await connectionCheck; }
+    finally { connectionCheck = null; }
 }
 
 // ==========================================
@@ -848,15 +879,14 @@ async function checkConnection() {
 // ==========================================
 
 function setConnectionStatus(connected) {
-
-    $("statusDot").style.background =
-        connected ? "#22c55e" : "#ef4444";
-
-    $("apiStatus").textContent =
-        connected
-            ? "API connected"
-            : "Cloud sync unavailable";
-
+    connectionState = connected === "loading" ? "loading" : connected ? "connected" : "offline";
+    $("statusDot").dataset.state = connectionState;
+    $("apiStatus").textContent = {
+        loading: "Waking server...",
+        connected: "API connected",
+        offline: "Cloud sync unavailable"
+    }[connectionState];
+    $("serverLoading").hidden = connectionState !== "loading";
 }
 
 // ==========================================
@@ -936,7 +966,7 @@ async function exportCSV() {
     link.href = url;
 
     link.download =
-        "RetailIQ_Cloud_Predictions.csv";
+        "Cancellation_Predictor_Cloud_Predictions.csv";
 
     document.body.appendChild(link);
 
@@ -978,11 +1008,10 @@ updateDashboard();
 updateHistory();
 updateAnalytics();
 
-$("apiStatus").textContent =
-    "Connecting to cloud...";
+setConnectionStatus("loading");
 
 console.log(
-    "RetailIQ 2.0 Cloud Edition initialized."
+    "Cancellation Predictor initialized."
 );
 
 console.log("API endpoint:", API_URL);
@@ -995,7 +1024,7 @@ checkConnection();
 
 setInterval(() => {
 
-    if (document.visibilityState === "visible") {
+    if (document.visibilityState === "visible" && !connectionCheck) {
 
         loadCloudHistory();
 
@@ -1009,7 +1038,7 @@ document.addEventListener(
     "visibilitychange",
     () => {
 
-        if (document.visibilityState === "visible") {
+        if (document.visibilityState === "visible" && !connectionCheck) {
 
             loadCloudHistory();
 
