@@ -27,31 +27,68 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Avoid verbose HTTP request logging
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+
 # ==========================================
 # 2. CONNECT TO SUPABASE
 # ==========================================
 
 print('Initializing Supabase connection...')
 
-supabase_url = os.getenv('SUPABASE_URL')
-supabase_key = os.getenv('SUPABASE_KEY')
+supabase_url = os.getenv('SUPABASE_URL', '').strip()
+supabase_key = os.getenv('SUPABASE_KEY', '').strip()
 
 supabase = None
 
+# Log errors without exposing database credentials
+
+def log_database_error(message, error):
+
+    details = str(error)
+
+    if supabase_key:
+        details = details.replace(
+            supabase_key,
+            '[REDACTED]'
+        )
+
+    logger.error(
+        '%s | Error type: %s | Details: %s',
+        message,
+        type(error).__name__,
+        details
+    )
+
+
 if supabase_url and supabase_key:
+
     try:
+
+        print('Supabase URL:', supabase_url)
+        print('Supabase key is configured.')
+
         supabase = create_client(
             supabase_url,
             supabase_key
         )
+
         print('Supabase client initialized.')
-    except Exception:
-        logger.error('Supabase initialization failed.')
+
+    except Exception as e:
+
+        log_database_error(
+            'Supabase initialization failed',
+            e
+        )
+
 else:
+
     print('Supabase environment variables missing.')
 
 # ==========================================
-# 3. LOAD EXISTING XGBOOST MODEL
+# 3. LOAD XGBOOST MODEL
 # ==========================================
 
 base = Path(__file__).resolve().parent
@@ -82,7 +119,7 @@ if (
 ):
     raise ValueError('Unexpected model configuration')
 
-print('Model loaded.')
+print('Model loaded successfully.')
 print('Features:', features)
 print('Threshold:', threshold)
 
@@ -124,25 +161,41 @@ def home():
 @app.get('/database-status')
 def database_status():
 
+    print('Checking Supabase database connection...')
+
     if supabase is None:
+
+        logger.error('Supabase client unavailable.')
+
         raise HTTPException(
             status_code=503,
             detail='Database not configured'
         )
 
     try:
-        supabase.table('predictions') \
-            .select('id') \
-            .limit(1) \
+
+        response = (
+            supabase.table('predictions')
+            .select('id')
+            .limit(1)
             .execute()
+        )
+
+        print('Supabase database connected successfully.')
 
         return {
             'status': 'connected',
             'database': 'Supabase PostgreSQL'
         }
 
-    except Exception:
-        logger.exception('Database connection check failed.')
+    except Exception as e:
+
+        # Detailed diagnostic error logging
+
+        log_database_error(
+            'Database connection check failed',
+            e
+        )
 
         raise HTTPException(
             status_code=503,
@@ -156,7 +209,9 @@ def database_status():
 @app.post('/predict')
 def predict(data: CustomerInput):
 
-    # Preserve original feature order
+    print('Received prediction request.')
+
+    # Preserve original model feature order
 
     frame = pd.DataFrame(
         [data.model_dump()],
@@ -169,7 +224,7 @@ def predict(data: CustomerInput):
 
     prediction = int(probability >= threshold)
 
-    # Preserve existing risk categories
+    # Preserve original risk categories
 
     risk = (
         'Low' if probability < 0.10
@@ -184,11 +239,15 @@ def predict(data: CustomerInput):
         'risk_level': risk
     }
 
+    print('Prediction generated.')
+    print('Risk level:', risk)
+
     # ======================================
-    # 8. SAVE PREDICTION TO CLOUD DATABASE
+    # 8. SAVE PREDICTION TO SUPABASE
     # ======================================
 
     record = {
+
         'historical_purchase_amount':
             data.HistoricalPurchaseAmount,
 
@@ -212,7 +271,9 @@ def predict(data: CustomerInput):
     saved = False
 
     if supabase is not None:
+
         try:
+
             supabase.table('predictions') \
                 .insert(record) \
                 .execute()
@@ -221,10 +282,18 @@ def predict(data: CustomerInput):
 
             print('Prediction saved to Supabase.')
 
-        except Exception:
-            logger.error('Failed to save prediction.')
+        except Exception as e:
 
-    # Prediction still works if database fails
+            log_database_error(
+                'Failed to save prediction',
+                e
+            )
+
+    else:
+
+        logger.warning('Database client unavailable.')
+
+    # ML prediction works even if database fails
 
     result['saved_to_database'] = saved
 
@@ -240,19 +309,27 @@ def get_history(
     offset: int = Query(default=0, ge=0)
 ):
 
+    print('Retrieving shared prediction history...')
+
     if supabase is None:
+
         raise HTTPException(
             status_code=503,
             detail='Database not configured'
         )
 
     try:
-        response = supabase.table('predictions') \
-            .select('*', count='exact') \
-            .order('created_at', desc=True) \
-            .order('id', desc=True) \
-            .range(offset, offset + limit - 1) \
+
+        response = (
+            supabase.table('predictions')
+            .select('*', count='exact')
+            .order('created_at', desc=True)
+            .order('id', desc=True)
+            .range(offset, offset + limit - 1)
             .execute()
+        )
+
+        print('Prediction history retrieved successfully.')
 
         return {
             'status': 'success',
@@ -260,8 +337,12 @@ def get_history(
             'predictions': response.data
         }
 
-    except Exception:
-        logger.error('Failed to retrieve history.')
+    except Exception as e:
+
+        log_database_error(
+            'Failed to retrieve prediction history',
+            e
+        )
 
         raise HTTPException(
             status_code=503,
